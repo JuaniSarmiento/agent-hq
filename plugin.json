@@ -1,0 +1,19 @@
+{
+  "name": "agent-hq",
+  "version": "0.1.0",
+  "description": "Specialized sub-agent system with TUI dashboard for Claude Code. 13 agent profiles (Python, Frontend, Go, QA, Docs, SDD, DevOps, Security, Reviewer, Architect, Git, Research) with real-time monitoring.",
+  "author": "juani",
+  "license": "MIT",
+  "mcp": {
+    "command": "agenthq-mcp",
+    "args": [],
+    "env": {
+      "AGENTHQ_DB": "~/.claude/agenthq.db"
+    }
+  },
+  "hooks": {
+    "postInstall": "bash install.sh"
+  },
+  "keywords": ["agents", "sub-agents", "dashboard", "tui", "orchestration"],
+  "repository": "https://github.com/juani/agent-hq"
+}
