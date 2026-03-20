@@ -34,6 +34,7 @@ type tickMsg time.Time
 // Model is the main Bubbletea model for Agent HQ.
 type Model struct {
 	db       *db.DB
+	dbPath   string
 	keys     KeyMap
 	width    int
 	height   int
@@ -49,6 +50,12 @@ type Model struct {
 	taskLogCursor int
 	startTime     time.Time
 
+	// Aggregate token tracking.
+	totalTokenInput  int
+	totalTokenOutput int
+	activeAgents     int
+	completedTasks   int
+
 	// Detail view state.
 	detail DetailView
 
@@ -57,9 +64,10 @@ type Model struct {
 }
 
 // New creates a new Model with the given database connection.
-func New(database *db.DB) Model {
+func New(database *db.DB, dbPath string) Model {
 	return Model{
 		db:        database,
+		dbPath:    dbPath,
 		keys:      DefaultKeyMap(),
 		startTime: time.Now(),
 	}
@@ -118,6 +126,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshOffices(msg.agents)
 		m.taskLog.Activities = msg.activities
+		m.aggregateTokens(msg.agents)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -132,6 +141,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// aggregateTokens computes total token usage and agent counts from all agents.
+func (m *Model) aggregateTokens(agents []model.Agent) {
+	var totalIn, totalOut, active, completed int
+	for _, a := range agents {
+		totalIn += a.TokenInput
+		totalOut += a.TokenOutput
+		if a.Status == model.StatusRunning {
+			active++
+		}
+		if a.Status == model.StatusCompleted {
+			completed++
+		}
+	}
+	m.totalTokenInput = totalIn
+	m.totalTokenOutput = totalOut
+	m.activeAgents = active
+	m.completedTasks = completed
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -233,8 +261,16 @@ func (m Model) handleMainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) openDetail(agent model.Agent) (tea.Model, tea.Cmd) {
 	activities, _ := m.db.GetAgentActivity(agent.ID)
 	files, _ := m.db.GetAgentFiles(agent.ID)
+	artifacts, _ := m.db.GetArtifactsByAgent(agent.ID)
 
-	m.detail = NewDetailView(agent, activities, files, m.width, m.height)
+	// Gather file paths from file changes to check for locks.
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.FilePath)
+	}
+	locks, _ := m.db.CheckFileLocks(paths)
+
+	m.detail = NewDetailView(agent, activities, files, artifacts, locks, m.width, m.height)
 	m.view = ViewDetail
 
 	return m, nil
@@ -369,9 +405,20 @@ func (m Model) renderFooter() string {
 			"[tab] cycle panel  [h/l] switch office  [j/k] navigate  [enter] detail  [esc] back  [?] close help  [q] quit",
 		)
 	}
-	return helpStyle.Width(m.width).Render(
-		"[tab] panel  [enter] detail  [?] help  [q] quit",
+
+	// Status bar with agent counts, token totals, and DB path.
+	dbLabel := m.dbPath
+	if len(dbLabel) > 30 {
+		dbLabel = "..." + dbLabel[len(dbLabel)-27:]
+	}
+
+	status := fmt.Sprintf("%d agents active \u2502 %d tasks completed \u2502 tokens: %s/%s \u2502 DB: %s",
+		m.activeAgents, m.completedTasks,
+		formatTokens(m.totalTokenInput), formatTokens(m.totalTokenOutput),
+		dbLabel,
 	)
+
+	return helpStyle.Width(m.width).Render(status)
 }
 
 func formatDuration(d time.Duration) string {

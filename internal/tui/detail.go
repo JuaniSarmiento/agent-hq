@@ -13,25 +13,29 @@ type DetailView struct {
 	Agent      model.Agent
 	Activities []model.Activity
 	Files      []model.FileChange
+	Artifacts  []model.Artifact
+	FileLocks  []model.FileLock
 	Viewport   viewport.Model
 	Ready      bool
 }
 
 // NewDetailView creates a detail view for the given agent.
-func NewDetailView(agent model.Agent, activities []model.Activity, files []model.FileChange, width, height int) DetailView {
+func NewDetailView(agent model.Agent, activities []model.Activity, files []model.FileChange, artifacts []model.Artifact, locks []model.FileLock, width, height int) DetailView {
 	vp := viewport.New(width-4, height-6)
-	vp.SetContent(renderDetailContent(agent, activities, files, width-6))
+	vp.SetContent(renderDetailContent(agent, activities, files, artifacts, locks, width-6))
 
 	return DetailView{
 		Agent:      agent,
 		Activities: activities,
 		Files:      files,
+		Artifacts:  artifacts,
+		FileLocks:  locks,
 		Viewport:   vp,
 		Ready:      true,
 	}
 }
 
-func renderDetailContent(agent model.Agent, activities []model.Activity, files []model.FileChange, width int) string {
+func renderDetailContent(agent model.Agent, activities []model.Activity, files []model.FileChange, artifacts []model.Artifact, locks []model.FileLock, width int) string {
 	var b strings.Builder
 
 	// Agent info header.
@@ -52,6 +56,27 @@ func renderDetailContent(agent model.Agent, activities []model.Activity, files [
 	b.WriteString(fmt.Sprintf("%s %s", icon, agentStyle(agent.Status)(string(agent.Status))))
 	b.WriteString("\n")
 
+	// Model field.
+	if agent.Model != "" {
+		b.WriteString(detailLabelStyle.Render("Model:    "))
+		b.WriteString(modelBadge(agent.Model))
+		b.WriteString("\n")
+	}
+
+	// Timeout field.
+	if agent.TimeoutMs > 0 {
+		b.WriteString(detailLabelStyle.Render("Timeout:  "))
+		b.WriteString(detailValueStyle.Render(fmt.Sprintf("%dms", agent.TimeoutMs)))
+		b.WriteString("\n")
+	}
+
+	// Retries field.
+	if agent.MaxRetries > 0 {
+		b.WriteString(detailLabelStyle.Render("Retries:  "))
+		b.WriteString(detailValueStyle.Render(fmt.Sprintf("%d/%d", agent.RetryCount, agent.MaxRetries)))
+		b.WriteString("\n")
+	}
+
 	if agent.StartedAt != nil {
 		b.WriteString(detailLabelStyle.Render("Started:  "))
 		b.WriteString(detailValueStyle.Render(agent.StartedAt.Format("15:04:05")))
@@ -66,6 +91,59 @@ func renderDetailContent(agent model.Agent, activities []model.Activity, files [
 		b.WriteString(detailLabelStyle.Render("Result:   "))
 		b.WriteString(detailValueStyle.Render(*agent.ResultSummary))
 		b.WriteString("\n")
+	}
+
+	// Tokens section.
+	if agent.TokenInput > 0 || agent.TokenOutput > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailTitleStyle.Render("\u26A1 TOKENS"))
+		b.WriteString("\n")
+
+		b.WriteString(fmt.Sprintf("  %-12s %s\n",
+			detailLabelStyle.Render("Input:"),
+			detailValueStyle.Render(formatTokens(agent.TokenInput)),
+		))
+		b.WriteString(fmt.Sprintf("  %-12s %s\n",
+			detailLabelStyle.Render("Output:"),
+			detailValueStyle.Render(formatTokens(agent.TokenOutput)),
+		))
+		b.WriteString(fmt.Sprintf("  %-12s %s\n",
+			detailLabelStyle.Render("Total:"),
+			detailValueStyle.Render(formatTokens(agent.TokenInput+agent.TokenOutput)),
+		))
+	}
+
+	// File locks section.
+	if len(locks) > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailTitleStyle.Render(fmt.Sprintf("\U0001F512 File Locks (%d)", len(locks))))
+		b.WriteString("\n")
+
+		for _, l := range locks {
+			b.WriteString(fmt.Sprintf("  %s  %s\n",
+				agentQueuedStyle.Render("LOCKED"),
+				detailValueStyle.Render(l.FilePath),
+			))
+		}
+	}
+
+	// Artifacts section.
+	if len(artifacts) > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailTitleStyle.Render(fmt.Sprintf("\U0001F4E6 ARTIFACTS (%d)", len(artifacts))))
+		b.WriteString("\n")
+
+		for _, a := range artifacts {
+			val := a.Value
+			maxVal := width - len(a.Key) - 10
+			if maxVal > 0 && len(val) > maxVal {
+				val = val[:maxVal-3] + "..."
+			}
+			b.WriteString(fmt.Sprintf("  %s  %s\n",
+				detailLabelStyle.Render(a.Key+":"),
+				detailValueStyle.Render(val),
+			))
+		}
 	}
 
 	// Files section.

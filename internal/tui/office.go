@@ -85,7 +85,11 @@ func (o Office) Render(width int, focused bool, cursor int) string {
 			shortID = shortID[:8]
 		}
 
+		// Build agent line: icon, shortID, status, and model badge.
 		line := fmt.Sprintf(" %s %s %s", icon, shortID, render(label))
+		if agent.Model != "" {
+			line += " " + modelBadge(agent.Model)
+		}
 
 		if focused && i == cursor {
 			line = selectedAgentStyle.Render("> ") + line
@@ -104,6 +108,20 @@ func (o Office) Render(width int, focused bool, cursor int) string {
 				task = task[:maxLen-3] + "..."
 			}
 			b.WriteString(fmt.Sprintf("      %s", agentRunningStyle.Render(fmt.Sprintf("%q", task))))
+			b.WriteString("\n")
+		}
+
+		// Show token usage for running or completed agents.
+		if (agent.Status == model.StatusRunning || agent.Status == model.StatusCompleted) &&
+			(agent.TokenInput > 0 || agent.TokenOutput > 0) {
+			tokenInfo := tokenStyle.Render(
+				fmt.Sprintf("      \u27E8%s/%s\u27E9", formatTokens(agent.TokenInput), formatTokens(agent.TokenOutput)),
+			)
+			// Show retry count if > 0.
+			if agent.RetryCount > 0 {
+				tokenInfo += tokenStyle.Render(fmt.Sprintf(" retry %d/%d", agent.RetryCount, agent.MaxRetries))
+			}
+			b.WriteString(tokenInfo)
 			b.WriteString("\n")
 		}
 	}
